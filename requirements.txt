@@ -1,0 +1,7 @@
+# requirements.txt
+pandas
+numpy
+
+sklearn
+matplotlib
+seaborn
