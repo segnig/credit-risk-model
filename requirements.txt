@@ -5,3 +5,8 @@ numpy
 sklearn
 matplotlib
 seaborn
+
+sidetable 
+jinja2 
+scorecardpy 
+monotonic-binning
