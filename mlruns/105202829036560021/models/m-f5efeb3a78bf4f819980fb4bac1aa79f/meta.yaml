@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/segni/Documents/GitHub/credit-risk-model/mlruns/105202829036560021/models/m-f5efeb3a78bf4f819980fb4bac1aa79f/artifacts
+creation_timestamp: 1751378875875
+experiment_id: '105202829036560021'
+last_updated_timestamp: 1751378898804
+model_id: m-f5efeb3a78bf4f819980fb4bac1aa79f
+model_type: null
+name: LogisticRegression
+source_run_id: b122588025174c8b8b842e2e18901697
+status: 2
+status_message: null

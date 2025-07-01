@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/segni/Documents/GitHub/credit-risk-model/mlruns/105202829036560021/3e7367339f93469a9356f63e7f8054cc/artifacts
+end_time: 1751377594979
+entry_point_name: ''
+experiment_id: '105202829036560021'
+lifecycle_stage: active
+run_id: 3e7367339f93469a9356f63e7f8054cc
+run_name: LogisticRegression
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1751377582169
+status: 4
+tags: []
+user_id: segni

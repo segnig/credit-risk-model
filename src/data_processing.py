@@ -190,8 +190,10 @@ class DataPreprocessor:
             # Flatten column names: Amount_sum, Amount_mean, etc.
             grouped.columns = [f"{col[0]}_{col[1]}" for col in grouped.columns]
             grouped.reset_index(inplace=True)
+              # Ensure no NaN in group_by_column
 
             self.data = self.data.merge(grouped, on=group_by_column, how='left')
+            self.data.fillna(0, inplace=True)
 
             self._report['aggregate_features'] = list(grouped.columns)
             print(f"Created aggregate features: {list(grouped.columns)}")

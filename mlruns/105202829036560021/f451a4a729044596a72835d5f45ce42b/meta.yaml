@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/segni/Documents/GitHub/credit-risk-model/mlruns/105202829036560021/f451a4a729044596a72835d5f45ce42b/artifacts
+end_time: 1751379027090
+entry_point_name: ''
+experiment_id: '105202829036560021'
+lifecycle_stage: active
+run_id: f451a4a729044596a72835d5f45ce42b
+run_name: RandomForest
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1751378899001
+status: 3
+tags: []
+user_id: segni
