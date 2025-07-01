@@ -11,3 +11,12 @@ sidetable
 jinja2 
 scorecardpy 
 monotonic-binning
+
+fastapi
+uvicorn
+pydantic
+mlflow
+
+flake8
+black
+pytest
