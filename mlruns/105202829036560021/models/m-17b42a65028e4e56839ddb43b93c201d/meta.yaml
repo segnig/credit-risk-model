@@ -1,0 +1,10 @@
+artifact_location: file:///C:/Users/segni/Documents/GitHub/credit-risk-model/mlruns/105202829036560021/models/m-17b42a65028e4e56839ddb43b93c201d/artifacts
+creation_timestamp: 1751379009937
+experiment_id: '105202829036560021'
+last_updated_timestamp: 1751379027029
+model_id: m-17b42a65028e4e56839ddb43b93c201d
+model_type: null
+name: RandomForest
+source_run_id: f451a4a729044596a72835d5f45ce42b
+status: 2
+status_message: null

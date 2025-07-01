@@ -5,6 +5,7 @@ numpy
 scikit-learn
 matplotlib
 seaborn
+mlflow
 
 sidetable 
 jinja2 
