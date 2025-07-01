@@ -316,7 +316,7 @@ if __name__ == "__main__":
     preprocessor.preprocess()
     
     
-    dropped_cols = ["BatchId", "AccountId", "SubscriptionId", "CustomerId", "TransactionStartTime"]
+    dropped_cols = ["BatchId", "AccountId", "SubscriptionId"]
     
     # Drop unnecessary columns
     preprocessor.drop_columns(dropped_cols)

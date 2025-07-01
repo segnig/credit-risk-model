@@ -52,6 +52,8 @@ def preprocess_data(data, categorical_features, numerical_features):
 
     feature_names = list(cat_features_encoded) + numerical_features
     processed_df = pd.DataFrame(processed_data, columns=feature_names)
+    processed_df["TransactionStartTime"] = data["TransactionStartTime"]
+    processed_df["CustomerId"] = data["CustomerId"]
 
     return processed_df
 

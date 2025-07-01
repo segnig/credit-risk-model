@@ -8,8 +8,7 @@ data = pd.read_csv("data/processed/processed_data_encoded.csv")
 
 # -------------------------------------------
 # STEP 1: Calculate RFM Metrics
-# -------------------------------------------
-
+# -----------------------------------------
 # Define snapshot date as 1 day after the latest transaction
 snapshot_date = pd.to_datetime(data['TransactionStartTime']).max() + pd.Timedelta(days=1)
 
