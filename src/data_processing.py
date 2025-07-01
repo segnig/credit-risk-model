@@ -1,336 +1,338 @@
 # src/data_processing.py
 import pandas as pd
 import numpy as np
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.pipeline import Pipeline, FeatureUnion
-from sklearn.preprocessing import (
-    StandardScaler,
-    OneHotEncoder,
-    MinMaxScaler,
-    FunctionTransformer
-)
-from sklearn.impute import SimpleImputer
-from sklearn.compose import ColumnTransformer
-from datetime import datetime
-from sklearn.utils.validation import check_is_fitted
-from sklearn.feature_selection import VarianceThreshold
+from typing import List, Dict, Union, Optional
 
 
 class DataPreprocessor:
-    """Class for initial data cleaning and preprocessing"""
-
-    def __init__(self, remove_duplicates=True, remove_constant_cols=True):
-        self.remove_duplicates = remove_duplicates
-        self.remove_constant_cols = remove_constant_cols
-        self.constant_columns_ = None
-        self.retained_columns_ = None
-
-    def fit(self, X, y=None):
-        if self.remove_constant_cols:
-            self.constant_columns_ = [
-                col for col in X.columns if X[col].nunique(dropna=False) <= 1
-            ]
-            self.retained_columns_ = [col for col in X.columns if col not in self.constant_columns_]
-        else:
-            self.retained_columns_ = X.columns.tolist()
-        return self
-
-    def transform(self, X):
-        X = X.copy()
-
-        if self.remove_duplicates:
-            X = X.drop_duplicates()
-
-        if self.remove_constant_cols and self.constant_columns_:
-            X = X.drop(columns=self.constant_columns_)
-
-        print("Data preprocessing complete.")
-        print(f"Retained columns: {len(self.retained_columns_)}")
-        return X
-
-    def get_feature_names_out(self, input_features=None):
-        return self.retained_columns_
-
-
-class FeatureExtractor(BaseEstimator, TransformerMixin):
-    def __init__(self, date_column='TransactionStartTime'):
+    """Class for comprehensive data cleaning, preprocessing, and feature engineering"""
+    
+    def __init__(self, data: pd.DataFrame, date_column: str = "TransactionStartTime"):
+        """
+        Initialize the DataPreprocessor.
+        
+        Args:
+            data: Input DataFrame to preprocess
+            date_column: Name of the datetime column (default "TransactionStartTime")
+        """
+        self.data = data.copy()  # Work with a copy to avoid modifying original
         self.date_column = date_column
-        self.date_columns_ = [
-            'TransactionHour', 'TransactionDay', 'TransactionMonth',
-            'TransactionYear', 'TransactionDayOfWeek',
-            'TransactionDayOfYear', 'IsWeekend'
-        ]
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
+        self._preprocessed = False
+        self._report = {}  # Store preprocessing statistics
+        
+    def get_data(self) -> pd.DataFrame:
+        """Return the preprocessed data."""
+        if not self._preprocessed:
+            print("Warning: Data hasn't been preprocessed yet. Call preprocess() first.")
+        return self.data
+        
+    def drop_columns(self, columns: List[str]) -> None:
+        """
+        Drop specified columns from the DataFrame.
+        
+        Args:
+            columns: List of column names to drop
+        """
+        existing_columns = [col for col in columns if col in self.data.columns]
+        missing_columns = set(columns) - set(existing_columns)
+        
+        if missing_columns:
+            print(f"Warning: Columns not found: {missing_columns}")
+            
         try:
-            X = X.copy()
-            if not pd.api.types.is_datetime64_any_dtype(X[self.date_column]):
-                X[self.date_column] = pd.to_datetime(X[self.date_column])
-
-            X['TransactionHour'] = X[self.date_column].dt.hour
-            X['TransactionDay'] = X[self.date_column].dt.day
-            X['TransactionMonth'] = X[self.date_column].dt.month
-            X['TransactionYear'] = X[self.date_column].dt.year
-            X['TransactionDayOfWeek'] = X[self.date_column].dt.dayofweek
-            X['TransactionDayOfYear'] = X[self.date_column].dt.dayofyear
-            X['IsWeekend'] = (X[self.date_column].dt.weekday >= 5).astype(int)
-
-            print("Temporal features extracted successfully.")
-            print(f"Length of temporal features: {len(self.date_columns_)}")
-
-            return X.drop(columns=[self.date_column])
+            self.data.drop(columns=existing_columns, inplace=True)
+            self._report['dropped_columns'] = existing_columns
+            print(f"Dropped columns: {existing_columns}")
         except Exception as e:
-            raise ValueError(f"Error extracting temporal features: {str(e)}") from e
-
-    def get_feature_names_out(self, input_features=None):
-        return self.date_columns_
-
-
-class GroupLowCardinality(BaseEstimator, TransformerMixin):
-    def __init__(self, threshold=0.05):
-        self.threshold = threshold
-        self.categories_ = {}
-
-    def fit(self, X, y=None):
+            print(f"Error dropping columns: {e}")
+    
+    def rename_columns(self, column_mapping: Dict[str, str]) -> None:
+        """
+        Rename columns in the DataFrame based on a mapping.
+        
+        Args:
+            column_mapping: Dictionary of {old_name: new_name} pairs
+        """
+        existing_mapping = {k: v for k, v in column_mapping.items() 
+                           if k in self.data.columns}
+        missing_keys = set(column_mapping.keys()) - set(existing_mapping.keys())
+        
+        if missing_keys:
+            print(f"Warning: Columns not found: {missing_keys}")
+            
         try:
-            for col in X.select_dtypes(include=['object', 'category']).columns:
-                value_counts = X[col].value_counts(normalize=True)
-                low_cardinality = value_counts[value_counts < self.threshold].index
-                self.categories_[col] = set(low_cardinality)
-
-            print(f"Low cardinality categories identified: {self.categories_}")
-            return self
+            self.data.rename(columns=existing_mapping, inplace=True)
+            self._report['renamed_columns'] = existing_mapping
+            print(f"Renamed columns: {existing_mapping}")
         except Exception as e:
-            raise ValueError(f"Error fitting GroupLowCardinality: {str(e)}") from e
-
-    def transform(self, X):
+            print(f"Error renaming columns: {e}")
+            
+    def group_by_column(self, group_by_column: str, agg_funcs: Dict[str, Union[str, List[str]]]) -> Optional[pd.DataFrame]:
+        """
+        Group the DataFrame by a specified column and apply aggregation functions.
+        
+        Args:
+            group_by_column: Column name to group by
+            agg_funcs: Dictionary of {column: aggregation_function} pairs
+            
+        Returns:
+            Grouped DataFrame or None if error occurs
+        """
+        if group_by_column not in self.data.columns:
+            print(f"Column '{group_by_column}' not found in DataFrame.")
+            return None
+            
+        valid_cols = {k: v for k, v in agg_funcs.items() if k in self.data.columns}
+        if len(valid_cols) != len(agg_funcs):
+            missing = set(agg_funcs.keys()) - set(valid_cols.keys())
+            print(f"Warning: Columns not found: {missing}")
+            
         try:
-            check_is_fitted(self, 'categories_')
-            X = X.copy()
-            for col, low_card in self.categories_.items():
-                if col in X.columns:
-                    X[col] = np.where(X[col].isin(low_card), 'Other', X[col])
-
-            print("Low cardinality features transformed successfully.")
-            print(f"Transformed columns: {list(self.categories_.keys())}")
-            print(f"Number of transformed columns: {len(self.categories_)}")
-            return X
+            grouped_data = self.data.groupby(group_by_column).agg(valid_cols)
+            return grouped_data
         except Exception as e:
-            raise ValueError(f"Error transforming GroupLowCardinality: {str(e)}") from e
+            print(f"Error grouping by column '{group_by_column}': {e}")
+            return None
+    
+    def _get_high_cardinality_cols(self, threshold: float = 0.8) -> List[str]:
+        """Identify columns with high cardinality (many unique values)."""
+        high_card_cols = []
+        for col in self.data.select_dtypes(include=['object', 'category']).columns:
 
-    def get_feature_names_out(self, input_features=None):
-        return input_features
+            unique_ratio = self.data[col].nunique() / len(self.data)
+            if unique_ratio > threshold:
+                high_card_cols.append(col)
+        self._report['high_cardinality_cols'] = high_card_cols
+        return high_card_cols
+    
+    def _get_constant_columns(self) -> List[str]:
+        """Identify columns with constant or quasi-constant values."""
+        constant_cols = []
+        for col in self.data.columns:
+            if self.data[col].nunique() <= 1:
+                constant_cols.append(col)
+        self._report['constant_columns'] = constant_cols
+        return constant_cols
+    
+    def _get_low_cardinality_cols(self, threshold: int = 35) -> List[str]:
+        """Identify columns with low cardinality (few unique values)."""
+        low_card_cols = []
+        for col in self.data.select_dtypes(include=['object', 'category']).columns:
+            if self.data[col].nunique() <= threshold:
+                low_card_cols.append(col)
+        self._report['low_cardinality_cols'] = low_card_cols
+        return low_card_cols
+    
+    def replace_low_frequency_classes(self, columns: List[str], threshold: float = 0.05, 
+                                    replacement: str = "Other") -> None:
+        """
+        Replace low-frequency classes with specified replacement value.
+        
+        Args:
+            columns: List of column names to process
+            threshold: Frequency threshold (default 0.05)
+            replacement: Value to use for replacement (default "Other")
+        """
+        replacement_stats = {}
+        
+        for col in columns:
+            if col not in self.data.columns:
+                print(f"Column '{col}' not found in DataFrame. Skipping.")
+                continue
+                
+            if not pd.api.types.is_categorical_dtype(self.data[col]) and not pd.api.types.is_object_dtype(self.data[col]):
+                print(f"Column '{col}' is not categorical. Skipping.")
+                continue
+                
+            value_counts = self.data[col].value_counts(normalize=True)
+            low_freq_classes = value_counts[value_counts < threshold].index.tolist()
+            
+            if low_freq_classes:
+                replace_dict = {cls: replacement for cls in low_freq_classes}
+                self.data[col] = self.data[col].replace(replace_dict)
+                replacement_stats[col] = {
+                    'num_replaced': len(low_freq_classes),
+                    'replaced_classes': low_freq_classes
+                }
+                print(f"Replaced {len(low_freq_classes)} classes in '{col}' with '{replacement}'")
+            else:
+                print(f"No low-frequency classes found in '{col}' (threshold={threshold})")
+                
+        self._report['low_frequency_replacements'] = replacement_stats
+    
+    def create_aggregate_features(self, group_by_column: str, agg_columns: Dict[str, List[str]]) -> None:
+        """
+        Create aggregate features grouped by a specified column.
 
+        Args:
+            group_by_column: Column to group by (e.g., 'CustomerId')
+            agg_columns: Dictionary where keys are aggregation types (e.g., 'mean', 'sum')
+                        and values are lists of columns to apply them on.
+        """
+        if group_by_column not in self.data.columns:
+            print(f"Grouping column '{group_by_column}' not found.")
+            return
 
-class AggregateFeatureGenerator(BaseEstimator, TransformerMixin):
-    def __init__(self, group_by_cols=None, amount_column='Amount'):
-        self.group_by_cols = group_by_cols or ['CustomerId', 'AccountId']
-        self.amount_column = amount_column
-        self.agg_features_ = {}
-        self.feature_names_ = []
+        # Transform to pandas expected format: {column: [agg1, agg2, ...]}
+        agg_columns_transformed = {}
+        for col, metrics in agg_columns.items():
+            for metric in metrics:
+                if col in self.data.columns:
+                    agg_columns_transformed.setdefault(col, []).append(metric)
 
-    def fit(self, X, y=None):
-        for group_col in self.group_by_cols:
-            agg_df = X.groupby(group_col, observed=False).agg({
-                self.amount_column: ['sum', 'mean', 'std', 'count', 'max', 'min']
-            })
-            agg_df.columns = [
-                f'{group_col}_{stat}_{self.amount_column}' for _, stat in agg_df.columns
+        if not agg_columns_transformed:
+            print("No valid aggregation columns specified")
+            return
+
+        try:
+            grouped = self.data.groupby(group_by_column).agg(agg_columns_transformed)
+
+            # Flatten column names: Amount_sum, Amount_mean, etc.
+            grouped.columns = [f"{col[0]}_{col[1]}" for col in grouped.columns]
+            grouped.reset_index(inplace=True)
+
+            self.data = self.data.merge(grouped, on=group_by_column, how='left')
+
+            self._report['aggregate_features'] = list(grouped.columns)
+            print(f"Created aggregate features: {list(grouped.columns)}")
+
+        except Exception as e:
+            print(f"Error creating aggregate features: {e}")
+
+    def extract_datetime_features(self, datetime_col: Optional[str] = None) -> None:
+        """
+        Extract features from datetime column (e.g., hour, day, month).
+        
+        Args:
+            datetime_col: Name of datetime column (uses class default if None)
+        """
+        col = datetime_col or self.date_column
+        if col not in self.data.columns:
+            print(f"Datetime column '{col}' not found.")
+            return
+            
+        try:
+            # Basic datetime features
+            self.data[f'{col}_year'] = self.data[col].dt.year
+            self.data[f'{col}_month'] = self.data[col].dt.month
+            self.data[f'{col}_day'] = self.data[col].dt.day
+            self.data[f'{col}_hour'] = self.data[col].dt.hour
+            self.data[f'{col}_minute'] = self.data[col].dt.minute
+            self.data[f'{col}_dayofweek'] = self.data[col].dt.dayofweek
+            self.data[f'{col}_is_weekend'] = self.data[col].dt.dayofweek >= 5
+            
+            # Time since reference features
+            ref_date = self.data[col].max()
+            self.data[f'{col}_days_since'] = (ref_date - self.data[col]).dt.days
+            self.data[f'{col}_weeks_since'] = self.data[f'{col}_days_since'] // 7
+            
+            # Cyclical encoding for periodic features
+            self.data[f'{col}_hour_sin'] = np.sin(2 * np.pi * self.data[col].dt.hour/24)
+            self.data[f'{col}_hour_cos'] = np.cos(2 * np.pi * self.data[col].dt.hour/24)
+            self.data[f'{col}_day_sin'] = np.sin(2 * np.pi * self.data[col].dt.day/31)
+            self.data[f'{col}_day_cos'] = np.cos(2 * np.pi * self.data[col].dt.day/31)
+            
+            # Add to report
+            new_features = [
+                f'{col}_year', f'{col}_month', f'{col}_day',
+                f'{col}_hour', f'{col}_minute', f'{col}_dayofweek',
+                f'{col}_is_weekend', f'{col}_days_since', f'{col}_weeks_since',
+                f'{col}_hour_sin', f'{col}_hour_cos', f'{col}_day_sin', f'{col}_day_cos'
             ]
-            self.feature_names_.extend(agg_df.columns.tolist())
-            agg_df.fillna(0, inplace=True)
-            self.agg_features_[group_col] = agg_df
-        return self
-
-    def transform(self, X):
-        try:
-            check_is_fitted(self, 'agg_features_')
-            X = X.copy()
-            for group_col, agg_df in self.agg_features_.items():
-                X = X.merge(agg_df, how='left', left_on=group_col, right_index=True)
-                X[agg_df.columns] = X[agg_df.columns].fillna(0)
-            print("Aggregate features generated successfully.")
-            print(f"Generated features: {self.feature_names_}")
-            print(f"Number of aggregate features: {len(self.feature_names_)}")
-            return X
+            self._report['extracted_datetime_features'] = new_features
+            print(f"Extracted datetime features from '{col}'")
+            
         except Exception as e:
-            raise ValueError(f"Error transforming AggregateFeatureGenerator: {str(e)}") from e
-
-    def get_feature_names_out(self, input_features=None):
-        return self.feature_names_
+            print(f"Error extracting datetime features: {e}")
 
 
-class TypeConverter(BaseEstimator, TransformerMixin):
-    def __init__(self, dtype_dict):
-        self.dtype_dict = dtype_dict
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
+    def preprocess(self) -> pd.DataFrame:
+        """Main preprocessing pipeline."""
         try:
-            X = X.copy()
-            for col, dtype in self.dtype_dict.items():
-                if col in X.columns:
-                    X[col] = X[col].astype(dtype)
-            print("Data types converted successfully.")
-            return X
+            # 1. Handle datetime
+            if self.date_column in self.data.columns:
+                self.data[self.date_column] = pd.to_datetime(
+                    self.data[self.date_column], errors='coerce'
+                )
+                self.data.dropna(subset=[self.date_column], inplace=True)
+                self.extract_datetime_features()
+            
+            # 2. Handle missing values
+            num_cols = self.data.select_dtypes(include=np.number).columns
+            cat_cols = self.data.select_dtypes(include=['object', 'category']).columns
+            
+            # Numerical: median imputation
+            if not num_cols.empty:
+                self.data[num_cols] = self.data[num_cols].fillna(self.data[num_cols].median())
+            
+            # Categorical: mode imputation
+            if not cat_cols.empty:
+                for col in cat_cols:
+                    self.data[col] = self.data[col].fillna(self.data[col].mode()[0])
+            
+            # 3. Handle low-frequency categories
+            low_card_cols = self._get_low_cardinality_cols()
+            if low_card_cols:
+                self.replace_low_frequency_classes(low_card_cols)
+            
+            # 4. Remove constant columns
+            constant_cols = self._get_constant_columns()
+            if constant_cols:
+                self.drop_columns(constant_cols)
+            
+            # 5. Create aggregate features (example)
+            print("*********************************************************************************************")
+            print("Creating aggregate features...")
+            if 'CustomerId' in self.data.columns and 'Amount' in self.data.columns:
+                self.create_aggregate_features(
+                    group_by_column='CustomerId',
+                    agg_columns={
+                        'Amount': ['sum', 'mean', 'count', 'std', 'median', 'min', 'max']
+                    }
+                )
+                print("Aggregate features created for 'CustomerId' and 'Amount'.")
+            
+            self._preprocessed = True
+            print("Preprocessing completed successfully.")
+            return self.data
+            
         except Exception as e:
-            raise ValueError(f"Error converting types: {str(e)}") from e
-
-    def get_feature_names_out(self, input_features=None):
-        return input_features
-
-
-class ColumnDropper(BaseEstimator, TransformerMixin):
-    def __init__(self, columns_to_drop):
-        self.columns_to_drop = columns_to_drop
-        self.retained_columns_ = None
-
-    def fit(self, X, y=None):
-        self.retained_columns_ = [col for col in X.columns if col not in self.columns_to_drop]
-        return self
-
-    def transform(self, X):
-        return X.drop(columns=self.columns_to_drop, errors='ignore')
-
-    def get_feature_names_out(self, input_features=None):
-        return self.retained_columns_
-
-
-def create_data_pipeline():
-    """Creates the complete data processing pipeline"""
-    """
-    Feature Types:
-    * High Cardinality: TransactionId, BatchId (will be dropped)
-    * Medium Cardinality: AccountId, SubscriptionId, CustomerId (used for aggregation)
-    * Low Cardinality: CurrencyCode, ProviderId, ProductId, ProductCategory, ChannelId
-    """
-    
-    # Define columns by type
-    numeric_features = ['Amount', 'Value', 'PricingStrategy']
-    
-    # Low cardinality features for one-hot encoding
-    low_cardinality_categorical = [
-        'ProviderId', 'ProductId', 'ProductCategory', 'ChannelId'
-    ]
-    
-    # Medium cardinality features (used for aggregation)
-    aggregation_features = ['AccountId', 'SubscriptionId', 'CustomerId']
-    
-    # Pipeline for numeric features
-    numeric_transformer = Pipeline([
-        ('imputer', SimpleImputer(strategy='median')),
-        ('scaler', StandardScaler()),
-        ('variance_threshold', VarianceThreshold(threshold=0.001))
-    ])
-    
-    # Pipeline for low cardinality categorical features (with one-hot encoding)
-    low_cardinality_transformer = Pipeline([
-        ('group_low_card', GroupLowCardinality(threshold=0.05)),
-        ('imputer', SimpleImputer(strategy='constant', fill_value='missing')),
-        ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False)),
-        ('variance_threshold', VarianceThreshold(threshold=0.01))
-    ])
-    
-    # Pipeline for temporal feature extraction
-    temporal_transformer = Pipeline([
-        ('feature_extractor', FeatureExtractor()),
-        ('type_converter', TypeConverter({
-            'TransactionHour': 'int32',
-            'TransactionDay': 'int32',
-            'TransactionMonth': 'int32',
-            'TransactionYear': 'int32',
-            'TransactionDayOfWeek': 'int32',
-            'TransactionDayOfYear': 'int32',
-            'IsWeekend': 'int32'
-        }))
-    ])
-    
-    # Pipeline for aggregate features
-    aggregate_transformer = Pipeline([
-        ('aggregator', AggregateFeatureGenerator(group_by_cols=aggregation_features)),
-    ])
-    
-    # Main feature processing pipeline
-    feature_processor = FeatureUnion([
-        ('numeric', ColumnTransformer([
-            ('numeric', numeric_transformer, numeric_features)
-        ], remainder='drop')),
-        ('categorical', ColumnTransformer([
-            ('categorical', low_cardinality_transformer, low_cardinality_categorical)
-        ], remainder='drop')),
-        ('temporal', temporal_transformer),
-        ('aggregate', aggregate_transformer)
-    ])
-    
-    # Complete pipeline
-    pipeline = Pipeline([
-        ('initial_cleaner', DataPreprocessor()),
-        ('drop_high_cardinality', ColumnDropper(columns_to_drop=['TransactionId', 'BatchId'])),
-        ('type_converter', TypeConverter({
-            'PricingStrategy': 'float32',
-            'ProviderId': 'category',
-            'ProductId': 'category',
-            'ProductCategory': 'category',
-            'ChannelId': 'category',
-            'AccountId': 'category',
-            'SubscriptionId': 'category',
-            'CustomerId': 'category'
-        })),
-        ('feature_processor', feature_processor),
-    ])
-    
-    return pipeline
-
-
-def get_feature_names(pipeline):
-    try:
-        feature_processor = pipeline.named_steps['feature_processor']
-        feature_names = []
-        for name, transformer in feature_processor.transformer_list:
-            try:
-                if isinstance(transformer, ColumnTransformer):
-                    ct_names = transformer.get_feature_names_out()
-                    if ct_names is not None:
-                        feature_names.extend(ct_names)
-                elif isinstance(transformer, Pipeline):
-                    last_step = transformer.steps[-1][1]
-                    if hasattr(last_step, 'get_feature_names_out'):
-                        names = last_step.get_feature_names_out()
-                        if names is not None:
-                            feature_names.extend(names)
-                elif hasattr(transformer, 'get_feature_names_out'):
-                    names = transformer.get_feature_names_out()
-                    if names is not None:
-                        feature_names.extend(names)
-            except Exception as inner_e:
-                print(f"Warning extracting names from {name}: {inner_e}")
-        return feature_names
-    except Exception as e:
-        print(f"Failed to extract feature names: {e}")
-        return [f"feature_{i}" for i in range(pipeline.named_steps['feature_processor'].transform(X.head(1)).shape[1])]
+            print(f"Error during preprocessing: {e}")
+            raise
+            
+    def get_preprocessing_report(self) -> Dict:
+        """Return a dictionary with preprocessing statistics and changes."""
+        return self._report.copy()
 
 
 
+# Example usage
 if __name__ == "__main__":
-    try:
-        raw_data = pd.read_csv('data/raw/data.csv')
-        
-        pipeline = create_data_pipeline()  # This builds your full pipeline
-        X = raw_data.drop(columns=['FraudResult'], errors='ignore')
-        y = raw_data['FraudResult'] if 'FraudResult' in raw_data.columns else None
-
-        X_processed = pipeline.fit_transform(X, y)
-        print("Pipeline fitted and data transformed successfully.")
-        feature_names = get_feature_names(pipeline)
-        
-        print(f"Feature names after processing: {feature_names}")
-        print(f"Processed data shape: {X_processed.shape}")
-        print(f"Number of features after processing: {len(feature_names)}")
-    except Exception as e:
-        print(f"An error occurred during processing: {e}")
-        raise
+    # Sample data
+    df = pd.read_csv("data/raw/data.csv")
+    
+    # Initialize and preprocess
+    preprocessor = DataPreprocessor(df)
+    preprocessor.preprocess()
+    
+    
+    dropped_cols = ["BatchId", "AccountId", "SubscriptionId", "CustomerId", "TransactionStartTime"]
+    
+    # Drop unnecessary columns
+    preprocessor.drop_columns(dropped_cols)
+    
+    # Get processed data
+    processed_df = preprocessor.get_data()
+    print("\nProcessed Data:")
+    print(processed_df.head())
+    
+    processed_df.to_csv("data/processed/processed_data.csv", index=False)
+    print("\nProcessed data saved to 'data/processed/processed_data.csv'")
+    
+    
+    # Get report
+    report = preprocessor.get_preprocessing_report()
+    print("\nPreprocessing Report:")
+    
+    for key, value in report.items():
+        print(f"{key}: {value}")
